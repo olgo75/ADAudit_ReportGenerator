@@ -1,0 +1,12 @@
+<Configuration>
+  <EmailSettings>
+    <SMTPServer>smtp.yourdomain.com</SMTPServer>
+    <Port>25</Port>
+    <From>ADReport@yourdomain.com</From>
+    <To type="list">admin@yourdomain.com,test@yourdomain.com</To>
+    <Subject>AD Audit Report - {0}</Subject>
+  </EmailSettings>
+  <Paths>
+    <OutputPath>C:\tmp</OutputPath>
+  </Paths>
+</Configuration>

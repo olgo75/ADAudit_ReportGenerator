@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rapport d'Audit AD - 06-05-2025</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px;
+        }
+        table { 
+            border-collapse: collapse; 
+            margin: 20px 0;
+            display: inline-block;
+        }
+        th, td { 
+            border: 1px solid #ddd; 
+            padding: 8px; 
+            text-align: left;
+            word-wrap: break-word;
+            max-width: 300px;
+        }
+        th { 
+			background-color: #084C64; 
+			color: white; 
+		}
+		.created { 
+			background-color: #DB504A; 
+		}
+		.modified { 
+			background-color: #E3B505; 
+		}
+		.deleted { 
+			background-color: #4F6D7A; 
+		}
+        h1 {
+            color: #000;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        h2 {
+            color: #000;
+            margin: 20px 0;
+        }
+        .changes {
+            margin: 10px 0;
+        }
+        .table-container {
+            max-width: 100%;
+            overflow-x: auto;
+        }
+        .no-changes {
+            color: #666;
+            font-style: italic;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .date-info {
+            color: #666;
+            font-style: italic;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Rapport d'Audit AD - 06-05-2025</h1>
+    <p class="date-info">Comparaison avec le 05-05-2025</p>
+    
+    <h2>Changements des utilisateurs</h2>
+    <div class="table-container">
+        <table>
+            <tr>
+                <th>Nom</th>
+                <th>Nature du changement</th>
+                <th>Informations complémentaires</th>
+            </tr>
+            <tr class="created">
+                <td>John Doe (jdoe)</td>
+                <td>Création</td>
+                <td></td>
+            </tr>
+            <tr class="modified">
+                <td>Jane Smith (jsmith)</td>
+                <td>Modification</td>
+                <td>
+                    <div style="margin-left: 20px;">Description: Employé → Manager</div>
+                    <div style="margin-left: 20px;">Dernière connexion: 04-05-2025 → 05-05-2025</div>
+                </td>
+            </tr>
+            <tr class="deleted">
+                <td>Bob Brown (bbrown)</td>
+                <td>Suppression</td>
+                <td></td>
+            </tr>
+        </table>
+    </div>
+
+    <h2>Changements des groupes</h2>
+    <div class="table-container">
+        <table>
+            <tr>
+                <th>Nom</th>
+                <th>Nature du changement</th>
+                <th>Informations complémentaires</th>
+            </tr>
+            <tr class="created">
+                <td>Developers</td>
+                <td>Création</td>
+                <td></td>
+            </tr>
+            <tr class="modified">
+                <td>Managers</td>
+                <td>Modification</td>
+                <td>
+                    <div style="margin-left: 20px;">Membres ajoutés: John Doe</div>
+                    <div style="margin-left: 20px;">Membres supprimés: Bob Brown</div>
+                </td>
+            </tr>
+            <tr class="deleted">
+                <td>OldGroup</td>
+                <td>Suppression</td>
+                <td></td>
+            </tr>
+        </table>
+    </div>
+
+    <h2>Changements des ordinateurs</h2>
+    <div class="table-container">
+        <table>
+            <tr>
+                <th>Nom</th>
+                <th>Nature du changement</th>
+                <th>Informations complémentaires</th>
+            </tr>
+            <tr class="created">
+                <td>PC-001 (PC-001$)</td>
+                <td>Création</td>
+                <td>OS: Windows 11 Pro 22H2</td>
+            </tr>
+            <tr class="modified">
+                <td>PC-002 (PC-002$)</td>
+                <td>Modification</td>
+                <td>
+                    <div style="margin-left: 20px;">Système d'exploitation: Windows 10 → Windows 11</div>
+                    <div style="margin-left: 20px;">Version OS: 21H2 → 22H2</div>
+                    <div style="margin-left: 20px;">Dernière connexion: 03-05-2025 → 05-05-2025</div>
+                </td>
+            </tr>
+            <tr class="deleted">
+                <td>PC-003 (PC-003$)</td>
+                <td>Suppression</td>
+                <td></td>
+            </tr>
+        </table>
+    </div>
+
+    <h2>Changements des unités d'organisation</h2>
+    <div class="table-container">
+        <table>
+            <tr>
+                <th>Nom</th>
+                <th>Nature du changement</th>
+                <th>Informations complémentaires</th>
+            </tr>
+            <tr class="created">
+                <td>Development</td>
+                <td>Création</td>
+                <td></td>
+            </tr>
+            <tr class="modified">
+                <td>IT</td>
+                <td>Modification</td>
+                <td>
+                    <div style="margin-left: 20px;">Description: IT Department → Information Technology</div>
+                </td>
+            </tr>
+            <tr class="deleted">
+                <td>Legacy</td>
+                <td>Suppression</td>
+                <td></td>
+            </tr>
+        </table>
+    </div>
+</body>
+</html>
