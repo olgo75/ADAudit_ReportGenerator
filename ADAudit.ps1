@@ -1,3 +1,7 @@
+# Ajout du paramètre Verbose au début du script
+[CmdletBinding()]
+param()
+
 # Configuration
 $configPath = Join-Path $PSScriptRoot "ADReportConfig.xml"
 if (-not (Test-Path $configPath)) {
@@ -8,8 +12,24 @@ if (-not (Test-Path $configPath)) {
 $config = [xml](Get-Content $configPath)
 $OutputPath = $config.Configuration.Paths.OutputPath
 $SMTPServer = $config.Configuration.EmailSettings.SMTPServer
+$Port = $config.Configuration.EmailSettings.Port
 $From = $config.Configuration.EmailSettings.From
 $To = $config.Configuration.EmailSettings.To
+
+# Charger les credentials SMTP
+$credentialsPath = Join-Path $PSScriptRoot "SMTPCredentials.xml"
+if (-not (Test-Path $credentialsPath)) {
+    Write-Error "Fichier de credentials SMTP non trouvé : $credentialsPath"
+    exit 1
+}
+
+try {
+    $SMTPCredential = Import-Clixml -Path $credentialsPath
+}
+catch {
+    Write-Error "Erreur lors de l'import des credentials SMTP : $_"
+    exit 1
+}
 
 # Créer le dossier de sortie s'il n'existe pas
 if (-not (Test-Path $OutputPath)) {
@@ -20,25 +40,49 @@ if (-not (Test-Path $OutputPath)) {
 function Export-ADData {
     param($Path)
     
+    # Utilisation de -Properties spécifiques au lieu de *
+    $userProperties = @(
+        'Name', 'SamAccountName', 'UserPrincipalName', 'Enabled', 
+        'LastLogonDate', 'Description', 'DistinguishedName', 'memberOf'
+    )
+    
+    $computerProperties = @(
+        'Name', 'SamAccountName', 'DistinguishedName', 
+        'OperatingSystem', 'OperatingSystemVersion'
+    )
+    
+    $groupProperties = @(
+        'Name', 'SamAccountName', 'Description', 
+        'DistinguishedName'
+    )
+
+    # Utilisation de -LDAPFilter pour optimiser les requêtes
     $data = @{
-        Users = Get-ADUser -Filter * -Properties * | Select-Object Name, SamAccountName, UserPrincipalName, Enabled, LastLogonDate, Description, DistinguishedName
-        Computers = Get-ADComputer -Filter * -Properties * | Select-Object Name, SamAccountName, DistinguishedName, OperatingSystem, OperatingSystemVersion
-        Groups = Get-ADGroup -Filter * -Properties * | Select-Object Name, SamAccountName, Description, DistinguishedName, EmailAddress | ForEach-Object {
-            $group = $_
-            $members = Get-ADGroupMember -Identity $group.SamAccountName | Select-Object Name, SamAccountName
-            [PSCustomObject]@{
-                Name = $group.Name
-                SamAccountName = $group.SamAccountName
-                Description = $group.Description
-                DistinguishedName = $group.DistinguishedName
-                EmailAddress = $group.EmailAddress
-                Members = $members
+        Users = Get-ADUser -LDAPFilter "(objectClass=user)" -Properties $userProperties | 
+            Select-Object $userProperties
+        Computers = Get-ADComputer -LDAPFilter "(objectClass=computer)" -Properties $computerProperties | 
+            Select-Object $computerProperties
+        Groups = Get-ADGroup -LDAPFilter "(objectClass=group)" -Properties $groupProperties | 
+            ForEach-Object {
+                $group = $_
+                $membersResult = Get-GroupMembers -GroupSamAccountName $group.SamAccountName -GroupName $group.Name
+                
+                [PSCustomObject]@{
+                    Name = $group.Name
+                    SamAccountName = $group.SamAccountName
+                    Description = $group.Description
+                    DistinguishedName = $group.DistinguishedName
+                    Members = $membersResult.Members
+                    MembersAccessError = if (-not $membersResult.Success) { $membersResult.Error } else { $null }
+                }
             }
-        }
-        OUs = Get-ADOrganizationalUnit -Filter * | Select-Object Name, DistinguishedName
+        OUs = Get-ADOrganizationalUnit -Filter * | 
+            Select-Object Name, DistinguishedName
     }
     
-    $data | ConvertTo-Json -Depth 10 | Set-Content "$Path\ADData-$ReportDate.json"
+    # Compression des données avant l'export
+    $jsonData = $data | ConvertTo-Json -Depth 10 -Compress
+    $jsonData | Set-Content "$Path\ADData-$ReportDate.json"
 }
 
 # Fonction pour récupérer le jour ouvré précédent
@@ -58,56 +102,53 @@ function Get-PreviousWorkingDay {
 function Compare-ADData {
     param($CurrentPath, $PreviousPath)
     
-    $ReportDate = (Get-Date).ToString("yyyy-MM-dd")
-    $PreviousDate = Get-PreviousWorkingDay $ReportDate
-    
-    # Convertir les dates pour l'affichage
-    $DisplayReportDate = (Get-Date $ReportDate).ToString("dd-MM-yyyy")
-    $DisplayPreviousDate = (Get-Date $PreviousDate).ToString("dd-MM-yyyy")
-    
-    $currentData = Get-Content "$CurrentPath\ADData-$ReportDate.json" | ConvertFrom-Json
-    $previousData = Get-Content "$PreviousPath\ADData-$PreviousDate.json" | ConvertFrom-Json
-    
+    # Chargement des données avec un timeout
+    $currentData = Get-Content "$CurrentPath\ADData-$ReportDate.json" -Raw | 
+        ConvertFrom-Json -AsHashtable
+    $previousData = Get-Content "$PreviousPath\ADData-$PreviousDate.json" -Raw | 
+        ConvertFrom-Json -AsHashtable
+
+    # Utilisation de hashtables pour les comparaisons
+    $currentUsers = @{}
+    $previousUsers = @{}
+    $currentGroups = @{}
+    $previousGroups = @{}
+
+    # Préparation des hashtables
+    foreach ($user in $currentData.Users) {
+        $currentUsers[$user.SamAccountName] = $user
+    }
+    foreach ($user in $previousData.Users) {
+        $previousUsers[$user.SamAccountName] = $user
+    }
+    foreach ($group in $currentData.Groups) {
+        $currentGroups[$group.SamAccountName] = $group
+    }
+    foreach ($group in $previousData.Groups) {
+        $previousGroups[$group.SamAccountName] = $group
+    }
+
+    # Comparaison optimisée
     $changes = @{
         Users = @{
-            Created = Compare-Object $previousData.Users $currentData.Users -Property SamAccountName -PassThru | Where-Object SideIndicator -eq "=>"
-            Modified = Compare-Object $previousData.Users $currentData.Users -Property SamAccountName -ExcludeDifferent -IncludeEqual | Where-Object { 
-                $current = $_.InputObject
-                $previous = $previousData.Users | Where-Object SamAccountName -eq $current.SamAccountName
-                $current -ne $previous
-            }
-            Deleted = Compare-Object $previousData.Users $currentData.Users -Property SamAccountName -PassThru | Where-Object SideIndicator -eq "<="
-            Previous = $previousData.Users
+            Created = $currentUsers.Keys | Where-Object { -not $previousUsers.ContainsKey($_) } | 
+                ForEach-Object { $currentUsers[$_] }
+            Modified = $currentUsers.Keys | Where-Object { 
+                $previousUsers.ContainsKey($_) -and 
+                ($currentUsers[$_] | ConvertTo-Json) -ne ($previousUsers[$_] | ConvertTo-Json)
+            } | ForEach-Object { $currentUsers[$_] }
+            Deleted = $previousUsers.Keys | Where-Object { -not $currentUsers.ContainsKey($_) } | 
+                ForEach-Object { $previousUsers[$_] }
         }
         Groups = @{
-            Created = Compare-Object $previousData.Groups $currentData.Groups -Property SamAccountName -PassThru | Where-Object SideIndicator -eq "=>"
-            Modified = Compare-Object $previousData.Groups $currentData.Groups -Property SamAccountName -ExcludeDifferent -IncludeEqual | Where-Object { 
-                $current = $_.InputObject
-                $previous = $previousData.Groups | Where-Object SamAccountName -eq $current.SamAccountName
-                $current -ne $previous
-            }
-            Deleted = Compare-Object $previousData.Groups $currentData.Groups -Property SamAccountName -PassThru | Where-Object SideIndicator -eq "<="
-            Previous = $previousData.Groups
-        }
-        Computers = @{
-            Created = Compare-Object $previousData.Computers $currentData.Computers -Property SamAccountName -PassThru | Where-Object SideIndicator -eq "=>"
-            Modified = Compare-Object $previousData.Computers $currentData.Computers -Property SamAccountName -ExcludeDifferent -IncludeEqual | Where-Object { 
-                $current = $_.InputObject
-                $previous = $previousData.Computers | Where-Object SamAccountName -eq $current.SamAccountName
-                $current -ne $previous
-            }
-            Deleted = Compare-Object $previousData.Computers $currentData.Computers -Property SamAccountName -PassThru | Where-Object SideIndicator -eq "<="
-            Previous = $previousData.Computers
-        }
-        OUs = @{
-            Created = Compare-Object $previousData.OUs $currentData.OUs -Property DistinguishedName -PassThru | Where-Object SideIndicator -eq "=>"
-            Modified = Compare-Object $previousData.OUs $currentData.OUs -Property DistinguishedName -ExcludeDifferent -IncludeEqual | Where-Object { 
-                $current = $_.InputObject
-                $previous = $previousData.OUs | Where-Object DistinguishedName -eq $current.DistinguishedName
-                $current -ne $previous
-            }
-            Deleted = Compare-Object $previousData.OUs $currentData.OUs -Property DistinguishedName -PassThru | Where-Object SideIndicator -eq "<="
-            Previous = $previousData.OUs
+            Created = $currentGroups.Keys | Where-Object { -not $previousGroups.ContainsKey($_) } | 
+                ForEach-Object { $currentGroups[$_] }
+            Modified = $currentGroups.Keys | Where-Object { 
+                $previousGroups.ContainsKey($_) -and 
+                ($currentGroups[$_] | ConvertTo-Json) -ne ($previousGroups[$_] | ConvertTo-Json)
+            } | ForEach-Object { $currentGroups[$_] }
+            Deleted = $previousGroups.Keys | Where-Object { -not $currentGroups.ContainsKey($_) } | 
+                ForEach-Object { $previousGroups[$_] }
         }
     }
     
@@ -215,7 +256,8 @@ function Generate-HTMLReport {
                 
                 $changesHTML = @()
                 if ($current.Enabled -ne $previous.Enabled) {
-                    $changesHTML += "<div style='margin-left: 20px;'>Statut: $([bool]$current.Enabled ? 'Activé' : 'Désactivé')</div>"
+                    $status = if ($current.Enabled) { 'Activé' } else { 'Désactivé' }
+                    $changesHTML += "<div style='margin-left: 20px;'>Statut: $status</div>"
                 }
                 if ($current.Description -ne $previous.Description) {
                     $changesHTML += "<div style='margin-left: 40px;'>Description: '$($previous.Description)' → '$($current.Description)'</div>"
@@ -296,11 +338,6 @@ function Generate-HTMLReport {
                     $changesHTML += @'
 <div style="margin-left: 20px;">Nom: {0} → {1}</div>
 '@ -f $previous.Name, $current.Name
-                }
-                if ($current.EmailAddress -ne $previous.EmailAddress) {
-                    $changesHTML += @'
-<div style="margin-left: 40px;">Email: {0} → {1}</div>
-'@ -f $previous.EmailAddress, $current.EmailAddress
                 }
                 
                 # Ajouter les changements de membres
@@ -460,6 +497,20 @@ function Generate-HTMLReport {
             })
         </table>
         </div>
+
+        <h2>Groupes avec erreurs d'accès</h2>
+        <table>
+            <tr>
+                <th>Nom du groupe</th>
+                <th>Message d'erreur</th>
+            </tr>
+            $(foreach ($group in $currentData.Groups | Where-Object { $_.MembersAccessError }) {
+                "<tr class='error'>
+                    <td>$($group.Name) ($($group.SamAccountName))</td>
+                    <td>$($group.MembersAccessError)</td>
+                </tr>"
+            })
+        </table>
     </body>
     </html>
 "@
@@ -471,44 +522,62 @@ function Generate-HTMLReport {
 function Send-EmailReport {
     param($ReportPath)
     
-    # Charger la configuration
-    $configPath = Join-Path $PSScriptRoot "ADReportConfig.xml"
-    if (Test-Path $configPath) {
-        $config = [xml](Get-Content $configPath)
-        $SMTPServer = $config.Configuration.EmailSettings.SMTPServer
-        $Port = $config.Configuration.EmailSettings.Port
-        $From = $config.Configuration.EmailSettings.From
-        $To = $config.Configuration.EmailSettings.To
-        
-        $username = $config.Configuration.EmailSettings.Username
-        $password = $config.Configuration.EmailSettings.Password
-        $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
-        $credential = New-Object System.Management.Automation.PSCredential ($username, $securePassword)
-    }
-    
     $subject = "AD Audit Report - $ReportDate"
     $body = Get-Content "$ReportPath" -Raw
     
     # Envoyer le message avec Send-MailMessage
-    Send-MailMessage -SmtpServer $SMTPServer -Port $Port -From $From -To $To -Subject $subject -Body $body -BodyAsHtml -Credential $credential
+    Send-MailMessage -SmtpServer $SMTPServer -Port $Port -From $From -To $To -Subject $subject -Body $body -BodyAsHtml -Credential $SMTPCredential
+}
+
+# Fonction pour récupérer les membres d'un groupe avec gestion d'erreur
+function Get-GroupMembers {
+    param(
+        [string]$GroupSamAccountName,
+        [string]$GroupName
+    )
+    
+    try {
+        $members = Get-ADGroupMember -Identity $GroupSamAccountName -Recursive -ErrorAction Stop | 
+            Select-Object Name, SamAccountName
+        return @{
+            Success = $true
+            Members = $members
+            Error = $null
+        }
+    }
+    catch {
+        $errorMessage = $_.Exception.Message
+        Write-Verbose "Impossible de récupérer les membres du groupe '$GroupName' ($GroupSamAccountName) : $errorMessage"
+        return @{
+            Success = $false
+            Members = $null
+            Error = $errorMessage
+        }
+    }
 }
 
 # Exécuter le script
 try {
+    Write-Verbose "Début de l'audit AD"
+    
     # Exporter les données actuelles
+    Write-Verbose "Export des données AD en cours..."
     Export-ADData -Path $OutputPath
     
     # Comparer avec la veille
+    Write-Verbose "Comparaison des données en cours..."
     $changes = Compare-ADData -CurrentPath $OutputPath -PreviousPath $OutputPath
     
     # Générer le rapport HTML
+    Write-Verbose "Génération du rapport HTML en cours..."
     Generate-HTMLReport -Changes $changes
     
     # Envoyer le rapport par email
+    Write-Verbose "Envoi du rapport par email en cours..."
     Send-EmailReport -ReportPath "$OutputPath\ADReport-$ReportDate.html"
     
-    Write-Host "Audit AD terminé avec succès" -ForegroundColor Green
+    Write-Verbose "Audit AD terminé avec succès"
 } catch {
-    Write-Host "Erreur lors de l'exécution du script: $_" -ForegroundColor Red
-    Send-MailMessage -SmtpServer $SMTPServer -Port $Port -Credential $credential -From $From -To $To -Subject "Erreur AD Audit Report" -Body "Une erreur s'est produite lors de l'exécution du script: $_"
+    Write-Verbose "Erreur lors de l'exécution du script: $_"
+    Send-MailMessage -SmtpServer $SMTPServer -Port $Port -Credential $SMTPCredential -From $From -To $To -Subject "Erreur AD Audit Report" -Body "Une erreur s'est produite lors de l'exécution du script: $_"
 }

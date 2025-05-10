@@ -195,25 +195,15 @@ function Save-Configuration {
     $emailSettings.AppendChild($xml.CreateElement("SMTPServer")).InnerText = $SMTPServer.Text
     $emailSettings.AppendChild($xml.CreateElement("Port")).InnerText = $Port.Text
     $emailSettings.AppendChild($xml.CreateElement("From")).InnerText = $From.Text
-    
-    # Créer un élément To avec un attribut pour indiquer que c'est une liste
-    $toElement = $xml.CreateElement("To")
-    $toElement.SetAttribute("type", "list")
-    $toElement.InnerText = $To.Text
-    $emailSettings.AppendChild($toElement)
-    
+    $emailSettings.AppendChild($xml.CreateElement("To")).InnerText = $To.Text
     $emailSettings.AppendChild($xml.CreateElement("Subject")).InnerText = "AD Audit Report - {0}"
 
     $paths = $xml.CreateElement("Paths")
     $paths.AppendChild($xml.CreateElement("OutputPath")).InnerText = $OutputPath.Text
 
-    $schedule = $xml.CreateElement("Schedule")
-    $schedule.AppendChild($xml.CreateElement("Time")).InnerText = $ExecutionTime.Text
-
     $config = $xml.CreateElement("Configuration")
     $config.AppendChild($emailSettings)
     $config.AppendChild($paths)
-    $config.AppendChild($schedule)
 
     $xml.AppendChild($config)
     $xml.Save("$PSScriptRoot\ADReportConfig.xml")
@@ -226,15 +216,7 @@ if (Test-Path $configPath) {
     $SMTPServer.Text = $config.Configuration.EmailSettings.SMTPServer
     $Port.Text = $config.Configuration.EmailSettings.Port
     $From.Text = $config.Configuration.EmailSettings.From
-    
-    # Récupérer le champ To
-    $toElement = $config.Configuration.EmailSettings.SelectSingleNode("To")
-    if ($toElement -and $toElement.Attributes["type"] -eq "list") {
-        $To.Text = $toElement.InnerText
-    } else {
-        $To.Text = $config.Configuration.EmailSettings.To.InnerText
-    }
-    
+    $To.Text = $config.Configuration.EmailSettings.To
     $OutputPath.Text = $config.Configuration.Paths.OutputPath
 }
 
